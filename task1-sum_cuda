@@ -1,0 +1,66 @@
+#include <iostream>
+#include <cuda_runtime.h>
+#include <chrono>
+
+__global__ void sum_kernel(float* d_arr, float* d_sum, int N) {
+    extern __shared__ float shared[];
+    int tid = threadIdx.x;
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+
+    shared[tid] = (idx < N) ? d_arr[idx] : 0.0f;
+    __syncthreads();
+
+    for (int s = blockDim.x / 2; s > 0; s >>= 1) {
+        if (tid < s)
+            shared[tid] += shared[tid + s];
+        __syncthreads();
+    }
+
+    if (tid == 0)
+        atomicAdd(d_sum, shared[0]);
+}
+
+int main() {
+    const int N = 1000000000;
+
+    // ===== НАСТРОЙКИ ПАРАЛЛЕЛИЗАЦИИ =====
+    int blockSize = 128;       // количество потоков в блоке (можно менять: 64, 128, 256, 512)
+    int numBlocks = (N + blockSize - 1) / blockSize;  // количество блоков
+    // ====================================
+
+    std::cout << "blockSize = " << blockSize << std::endl;
+    std::cout << "numBlocks = " << numBlocks << std::endl;
+
+    float* h_arr = new float[N];
+
+    srand(time(0));
+    for (int i = 0; i < N; i++)
+        h_arr[i] = (float)(rand() % 100) / 10.0f;
+
+    float *d_arr, *d_sum;
+    cudaMalloc(&d_arr, N * sizeof(float));
+    cudaMalloc(&d_sum, sizeof(float));
+
+    cudaMemcpy(d_arr, h_arr, N * sizeof(float), cudaMemcpyHostToDevice);
+    cudaMemset(d_sum, 0, sizeof(float));
+
+    auto start = std::chrono::high_resolution_clock::now();
+
+    sum_kernel<<<numBlocks, blockSize, blockSize * sizeof(float)>>>(d_arr, d_sum, N);
+    cudaDeviceSynchronize();
+
+    float h_sum;
+    cudaMemcpy(&h_sum, d_sum, sizeof(float), cudaMemcpyDeviceToHost);
+
+    auto end = std::chrono::high_resolution_clock::now();
+    double time_taken = std::chrono::duration<double>(end - start).count();
+
+    std::cout << "Sum = " << h_sum << std::endl;
+    std::cout << "Time = " << time_taken << " sec" << std::endl;
+
+    cudaFree(d_arr);
+    cudaFree(d_sum);
+    delete[] h_arr;
+
+    return 0;
+}
