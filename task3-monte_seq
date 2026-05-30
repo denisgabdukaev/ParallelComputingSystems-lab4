@@ -1,0 +1,48 @@
+#include <iostream>
+#include <cmath>
+#include <random>
+#include <chrono>
+
+double f(double x, double y) {
+    return x * x - 2.0 * y;
+}
+
+bool in_S(double x, double y) {
+    return (x >= -2.0 && x <= 1.0 && y >= x - 1.0 && y <= 1.0 - x * x);
+}
+
+int main() {
+    const long long N = 100000000;
+    const double x1 = -2.0, x2 = 1.0;
+    const double y1 = -3.0, y2 = 1.0;
+    const double area_rect = (x2 - x1) * (y2 - y1);  // = 12.0
+
+    std::random_device rd;
+    std::mt19937 gen(rd());
+    std::uniform_real_distribution<> dis_x(x1, x2);
+    std::uniform_real_distribution<> dis_y(y1, y2);
+
+    auto start = std::chrono::high_resolution_clock::now();
+
+    double sum_f = 0.0;
+    long long count_inside = 0;
+
+    for (long long i = 0; i < N; i++) {
+        double x = dis_x(gen);
+        double y = dis_y(gen);
+        if (in_S(x, y)) {
+            sum_f += f(x, y);
+            count_inside++;
+        }
+    }
+
+    double integral = area_rect * sum_f / N;
+
+    auto end = std::chrono::high_resolution_clock::now();
+    double time_taken = std::chrono::duration<double>(end - start).count();
+
+    std::cout << "Integral = " << integral << std::endl;
+    std::cout << "Time = " << time_taken << " sec" << std::endl;
+
+    return 0;
+}
