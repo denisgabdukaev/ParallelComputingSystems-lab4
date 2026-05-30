@@ -1,0 +1,28 @@
+#include <iostream>
+#include <cstdlib>
+#include <ctime>
+#include <chrono>
+
+int main() {
+    const int N = 1000000000;
+    float* arr = new float[N];
+
+    srand(time(0));
+    for (int i = 0; i < N; i++)
+        arr[i] = (float)(rand() % 100) / 10.0f;
+
+    auto start = std::chrono::high_resolution_clock::now();
+
+    float sum = 0.0f;
+    for (int i = 0; i < N; i++)
+        sum += arr[i];
+
+    auto end = std::chrono::high_resolution_clock::now();
+    double time_taken = std::chrono::duration<double>(end - start).count();
+
+    std::cout << "Sum = " << sum << std::endl;
+    std::cout << "Time = " << time_taken << " sec" << std::endl;
+
+    delete[] arr;
+    return 0;
+}
