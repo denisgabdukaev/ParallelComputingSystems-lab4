@@ -1,0 +1,85 @@
+#include <iostream>
+#include <cuda_runtime.h>
+#include <curand_kernel.h>
+#include <chrono>
+
+__device__ double f(double x, double y) {
+    return x * x - 2.0 * y;
+}
+
+__device__ bool in_S(double x, double y) {
+    return (x >= -2.0 && x <= 1.0 && y >= x - 1.0 && y <= 1.0 - x * x);
+}
+
+__global__ void monteCarloKernel(double* d_sum, int* d_count, long long N, double area_rect,
+                                 double x1, double x2, double y1, double y2, unsigned long long seed) {
+    int idx = threadIdx.x + blockIdx.x * blockDim.x;
+    int total_threads = gridDim.x * blockDim.x;
+    
+    curandState state;
+    curand_init(seed, idx, 0, &state);
+    
+    double local_sum = 0.0;
+    int local_count = 0;
+    
+    for (long long i = idx; i < N; i += total_threads) {
+        double x = x1 + curand_uniform_double(&state) * (x2 - x1);
+        double y = y1 + curand_uniform_double(&state) * (y2 - y1);
+        if (in_S(x, y)) {
+            local_sum += f(x, y);
+            local_count++;
+        }
+    }
+    
+    atomicAdd(d_sum, local_sum);
+    atomicAdd(d_count, local_count);
+}
+
+int main() {
+    const long long N = 100000000;  // 100 млн испытаний
+    const double x1 = -2.0, x2 = 1.0;
+    const double y1 = -3.0, y2 = 1.0;
+    const double area_rect = (x2 - x1) * (y2 - y1);  // = 12.0
+    
+    // ===== НАСТРОЙКИ ПАРАЛЛЕЛИЗАЦИИ =====
+    int blockSize = 256;       // количество потоков в блоке (можно менять: 64, 128, 256, 512)
+    int numBlocks = 1024;      // количество блоков (можно менять: 512, 1024, 2048, 4096)
+    // ====================================
+    
+    std::cout << "=== MONTE CARLO INTEGRAL (CUDA) ===" << std::endl;
+    std::cout << "N (испытаний) = " << N << std::endl;
+    std::cout << "blockSize = " << blockSize << std::endl;
+    std::cout << "numBlocks = " << numBlocks << std::endl;
+    std::cout << "total threads = " << blockSize * numBlocks << std::endl;
+    
+    double *d_sum;
+    int *d_count;
+    cudaMalloc(&d_sum, sizeof(double));
+    cudaMalloc(&d_count, sizeof(int));
+    cudaMemset(d_sum, 0, sizeof(double));
+    cudaMemset(d_count, 0, sizeof(int));
+    
+    auto start = std::chrono::high_resolution_clock::now();
+    
+    monteCarloKernel<<<numBlocks, blockSize>>>(d_sum, d_count, N, area_rect, x1, x2, y1, y2, time(0));
+    cudaDeviceSynchronize();
+    
+    double h_sum;
+    int h_count;
+    cudaMemcpy(&h_sum, d_sum, sizeof(double), cudaMemcpyDeviceToHost);
+    cudaMemcpy(&h_count, d_count, sizeof(int), cudaMemcpyDeviceToHost);
+    
+    double integral = area_rect * h_sum / N;
+    
+    auto end = std::chrono::high_resolution_clock::now();
+    double time_taken = std::chrono::duration<double>(end - start).count();
+    
+    std::cout << "Integral = " << integral << std::endl;
+    std::cout << "Points inside = " << h_count << " (" << (100.0 * h_count / N) << "%)" << std::endl;
+    std::cout << "Time (CUDA) = " << time_taken << " sec" << std::endl;
+    
+    cudaFree(d_sum);
+    cudaFree(d_count);
+    
+    return 0;
+}
