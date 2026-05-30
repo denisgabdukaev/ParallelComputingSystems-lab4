@@ -1,0 +1,78 @@
+#include <iostream>
+#include <cuda_runtime.h>
+#include <chrono>
+
+__device__ void swap(int& a, int& b) {
+  int t = a;
+   a = b;
+    b = t;
+}
+
+__global__ void bitonicStep(int* d_arr, int j, int k, int N) {
+   int i = threadIdx.x + blockIdx.x * blockDim.x;
+    int ixj = i ^ j;
+
+     if (ixj > i && ixj < N) {
+       if ((i & k) == 0) {
+        if (d_arr[i] > d_arr[ixj])
+        swap(d_arr[i], d_arr[ixj]);
+        } else {
+          if (d_arr[i] < d_arr[ixj])
+          swap(d_arr[i], d_arr[ixj]);
+          }
+     }
+}
+
+int main() {
+  const int N = 1 << 25;
+
+    // ===== НАСТРОЙКИ ПАРАЛЛЕЛИЗАЦИИ =====
+    int blockSize = 64; // количество потоков в блоке (можно менять: 64, 128, 256, 512)
+    int numBlocks = (N + blockSize - 1) / blockSize; // количество блоков
+    // ====================================
+
+    std::cout << "blockSize = " << blockSize << std::endl;
+    std::cout << "numBlocks = " << numBlocks << std::endl;
+
+    int* h_arr = new int[N];
+
+    srand(time(0));
+    for (int i = 0; i < N; i++){
+       h_arr[i] = rand() % 1000000;
+    }
+
+
+    int* d_arr;
+    cudaMalloc(&d_arr, N * sizeof(int));
+    cudaMemcpy(d_arr, h_arr, N * sizeof(int), cudaMemcpyHostToDevice);
+
+    auto start = std::chrono::high_resolution_clock::now();
+
+    for (int k = 2; k <= N; k <<= 1) {
+      for (int j = k >> 1; j > 0; j >>= 1) {
+        bitonicStep<<<numBlocks, blockSize>>>(d_arr, j, k, N);
+        cudaDeviceSynchronize();
+        }
+    }
+
+    auto end = std::chrono::high_resolution_clock::now();
+    double time_taken = std::chrono::duration<double>(end - start).count();
+
+    cudaMemcpy(h_arr, d_arr, N * sizeof(int), cudaMemcpyDeviceToHost);
+
+    // Проверка сортировки
+    bool sorted = true;
+    for (int i = 0; i < N - 1; i++) {
+        if (h_arr[i] > h_arr[i+1]) {
+          sorted = false;
+          break;
+          }
+    }
+
+    std::cout << "Merge sort time = " << time_taken << " sec" << std::endl;
+
+    cudaFree(d_arr);
+    delete[] h_arr;
+
+    return 0;
+}
